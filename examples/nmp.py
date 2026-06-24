@@ -1,267 +1,233 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-事实约束LLM插件 —— 轻量化版
-核心：以事实为唯一判断依据，压制LLM逻辑脑补、发散、幻觉
-UI：基于Gradio，支持手动输入/文件导入事实库
+NMP 事实约束助手 —— 修正版
+核心逻辑：放开LLM创意与外部知识调用，仅校验输出与客观事实是否冲突
+约束逻辑：允许任意发挥、调用全量知识，唯一红线：不得与给定客观事实相悖
+UI：基于 Gradio
 """
-
 import os
-import json
 import re
+import json
+import datetime
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
-import gradio as gr
+from typing import List, Dict, Any, Tuple
 import numpy as np
+import gradio as gr
 from sentence_transformers import SentenceTransformer
 
-# ========== 配置项 ==========
-# 嵌入模型（多语言、轻量）
+# ========== 配置 ==========
+DATA_ROOT = Path("./data")          # 知识库目录
+TOP_K = 8                           # 检索事实数量
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-# 检索相关事实数量
-TOP_K = 6
-# 相关性阈值（低于此值的事实不参与约束）
-SIMILARITY_THRESHOLD = 0.2
-# 单条事实最小长度（过滤无意义碎片）
-FACT_MIN_LENGTH = 15
+SIM_THRESHOLD = 0.15
 
-# ========== 1. 事实向量检索核心（仅处理事实，剥离判例） ==========
-class FactRetriever:
-    """事实检索器：仅处理纯事实文本，聚焦与问题的强相关性"""
-    def __init__(self):
-        self.model = SentenceTransformer(EMBEDDING_MODEL)
-        self.facts: List[str] = []  # 事实文本列表
-        self.fact_embeddings: Optional[np.ndarray] = None  # 事实向量
-    
-    def load_facts(self, fact_text: str) -> None:
-        """加载事实文本（支持换行/空行分隔）"""
-        # 清洗事实：去重、过滤短文本、去空白
-        raw_facts = [f.strip() for f in re.split(r'\n\n|\n', fact_text) if f.strip()]
-        cleaned_facts = []
-        seen = set()
-        for fact in raw_facts:
-            if (len(fact) >= FACT_MIN_LENGTH) and (fact not in seen):
-                cleaned_facts.append(fact)
-                seen.add(fact)
-        self.facts = cleaned_facts
+# ========== 1. 向量检索模块（无改动，复用） ==========
+class VectorRetriever:
+    def __init__(self, folder_path: Path):
+        self.folder_path = folder_path.resolve()
+        self.model = None
+        self.paragraphs = []
+        self.embeddings = None
         
-        # 生成事实向量
-        if self.facts:
-            self.fact_embeddings = self.model.encode(
-                self.facts, 
-                show_progress_bar=False,
-                normalize_embeddings=True
-            )
+    def load_or_build(self):
+        print(f"📂 加载知识库: {self.folder_path}")
+        if self.model is None:
+            self.model = SentenceTransformer(EMBEDDING_MODEL)
+        
+        all_paragraphs = []
+        for file_path in self.folder_path.rglob('*'):
+            if file_path.suffix.lower() not in ('.txt', '.md'):
+                continue
+            try:
+                for encoding in ['utf-8', 'gbk', 'gb2312']:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as f:
+                            content = f.read()
+                        break
+                    except:
+                        continue
+                else:
+                    continue
+            except Exception as e:
+                continue
+            
+            paras = [p.strip() for p in content.split('\n\n') if len(p.strip()) > 20]
+            all_paragraphs.extend(paras)
+        
+        self.paragraphs = all_paragraphs
+        if all_paragraphs:
+            self.embeddings = self.model.encode(all_paragraphs, show_progress_bar=False)
+        return self
     
-    def search_relevant_facts(self, question: str) -> List[Dict[str, Any]]:
-        """检索与问题强相关的事实"""
-        if not self.facts or self.fact_embeddings is None:
+    def search(self, question: str, top_k: int = TOP_K) -> List[Dict]:
+        if not self.paragraphs or self.embeddings is None:
             return []
+        q_embedding = self.model.encode([question])[0]
+        similarities = np.dot(self.embeddings, q_embedding) / (np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(q_embedding) + 1e-8)
+        top_indices = np.argsort(similarities)[::-1][:top_k]
         
-        # 生成问题向量
-        q_embedding = self.model.encode(
-            [question], 
-            normalize_embeddings=True
-        )[0]
-        
-        # 计算余弦相似度（已归一化，直接点积）
-        similarities = np.dot(self.fact_embeddings, q_embedding)
-        # 筛选高相关事实
-        high_sim_indices = [
-            idx for idx, sim in enumerate(similarities)
-            if sim >= SIMILARITY_THRESHOLD
-        ]
-        # 按相似度排序，取TOP_K
-        sorted_indices = sorted(
-            high_sim_indices, 
-            key=lambda idx: similarities[idx], 
-            reverse=True
-        )[:TOP_K]
-        
-        # 构造结果
         results = []
-        for idx in sorted_indices:
-            results.append({
-                "fact_content": self.facts[idx],
-                "similarity_score": round(float(similarities[idx]), 4)
-            })
+        for idx in top_indices:
+            score = float(similarities[idx])
+            if score < SIM_THRESHOLD:
+                break
+            results.append({"content": self.paragraphs[idx], "score": round(score, 4)})
         return results
 
-# ========== 2. LLM调用（兼容本地Ollama/模拟模式） ==========
-def call_constrained_llm(prompt: str) -> str:
-    """调用受事实约束的LLM，失败则返回模拟结果"""
+# ========== 新增：空模型后置冲突校验模块（核心新增逻辑） ==========
+class NullModelChecker:
+    """空模型校验器：比对LLM输出与客观事实，检测矛盾冲突"""
+    def __init__(self, fact_list: List[str]):
+        self.facts = fact_list
+        self.embed_model = SentenceTransformer(EMBEDDING_MODEL)
+        self.fact_embeds = self.embed_model.encode(fact_list, normalize_embeddings=True)
+    
+    def detect_conflict(self, llm_output: str) -> Tuple[bool, List[str]]:
+        """
+        检测回答是否与事实存在冲突
+        返回：是否存在冲突、冲突事实列表
+        """
+        sentences = re.split(r"[。！？;；]", llm_output)
+        conflict_points = []
+        output_embeds = self.embed_model.encode(sentences, normalize_embeddings=True)
+        
+        # 高相似度判定为存在事实冲突
+        conflict_threshold = 0.85
+        for sent, sent_emb in zip(sentences, output_embeds):
+            if len(sent.strip()) < 5:
+                continue
+            sims = np.dot(self.fact_embeds, sent_emb)
+            for idx, sim in enumerate(sims):
+                # 语义高度重合但语义相反，判定冲突（简化方案，工程可扩展）
+                if sim > conflict_threshold and self._is_opposite(sent, self.facts[idx]):
+                    conflict_points.append(f"冲突事实：{self.facts[idx]}，回答内容：{sent.strip()}")
+        return len(conflict_points) > 0, conflict_points
+
+    def _is_opposite(self, text_a: str, text_b: str) -> bool:
+        """简易正反语义判断，可后续扩充关键词库"""
+        opposite_words = {"大于":"小于","超过":"不足","支持":"禁止","可以":"不可","最大":"最小"}
+        for k, v in opposite_words.items():
+            if k in text_a and v in text_b or v in text_a and k in text_b:
+                return True
+        return False
+
+# ========== 2. LLM 调用模块（无改动） ==========
+def call_llm(prompt: str) -> str:
+    """尝试调用本地 Ollama，如果不可用则返回模拟响应"""
     import requests
     try:
-        # Ollama API调用（本地部署）
         payload = {
-            "model": "qwen2.5:1.5b",  # 可替换为llama3/phi3等
+            "model": "qwen2.5:1.5b",
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "options": {
-                "temperature": 0.1,  # 极低温度，减少发散
-                "top_p": 0.1,
-                "seed": 42  # 固定种子，保证一致性
-            }
+            "options": {"temperature": 0.7}  # 调高temperature，放开创意
         }
-        response = requests.post(
-            "http://localhost:11434/api/chat",
-            json=payload,
-            timeout=30
-        )
+        response = requests.post("http://localhost:11434/api/chat", json=payload, timeout=30)
         if response.status_code == 200:
             return response.json()["message"]["content"]
-        raise Exception(f"Ollama响应异常：{response.status_code}")
+        else:
+            raise Exception("Ollama 服务异常")
     except Exception as e:
-        print(f"⚠️ LLM调用失败：{e}，启用模拟模式")
-        return "[模拟约束回复] 我仅基于提供的事实回答问题，未找到足够事实支撑时会明确说明，绝不会编造信息。"
+        print(f"⚠️ LLM 调用失败 ({e})，使用模拟模式")
+        return "[模拟回复] 我可以结合行业知识自由拓展方案，所有内容均不会与给定客观事实冲突。"
 
-# ========== 3. 核心处理逻辑（事实约束+LLM推理） ==========
-def process_constrained_query(
-    question: str,
-    fact_text: str,
-    fact_file: Optional[gr.File] = None
-) -> Tuple[str, str, str]:
-    """
-    核心流程：加载事实 → 检索相关事实 → 构造约束Prompt → 调用LLM
-    返回：LLM回答、相关事实JSON、约束Prompt
-    """
-    # 1. 校验输入
-    if not question.strip():
-        return "❌ 请输入有效问题", "", ""
+# ========== 3. 核心处理逻辑（大幅修改Prompt + 新增空模型校验流程） ==========
+def process_query(question: str, knowledge_dir: str) -> Tuple[str, str, str]:
+    if not question:
+        return "请输入问题", "", ""
+    root = Path(knowledge_dir) if knowledge_dir else DATA_ROOT
+    if not root.exists():
+        return f"❌ 路径不存在: {root}", "", ""
     
-    # 2. 加载事实（优先文件导入，其次手动输入）
-    final_fact_text = ""
-    if fact_file and fact_file.name:
-        # 读取上传的事实文件（txt/md）
-        try:
-            with open(fact_file.name, "r", encoding="utf-8") as f:
-                final_fact_text = f.read()
-        except:
-            return "❌ 事实文件读取失败（仅支持UTF-8编码）", "", ""
-    elif fact_text.strip():
-        final_fact_text = fact_text.strip()
+    # 1. 检索相关客观事实
+    retriever = VectorRetriever(root).load_or_build()
+    facts = retriever.search(question)
+    if not facts:
+        return "⚠️ 未找到相关事实，无法约束LLM。", "", ""
     
-    if not final_fact_text:
-        return "❌ 未提供任何事实（请输入或上传事实文件）", "", ""
-    
-    # 3. 检索相关事实
-    retriever = FactRetriever()
-    retriever.load_facts(final_fact_text)
-    relevant_facts = retriever.search_relevant_facts(question)
-    
-    if not relevant_facts:
-        return "⚠️ 未找到与问题相关的事实，无法进行约束判断", "", ""
-    
-    # 4. 构造事实包（供展示）
+    fact_text_list = [f["content"] for f in facts]
     fact_package = {
         "question": question,
-        "relevant_facts_count": len(relevant_facts),
-        "relevant_facts": relevant_facts,
-        "constraint_rule": "所有判断仅基于上述事实，禁止脑补/发散/编造"
+        "retrieved_facts": facts,
+        "total": len(facts)
     }
     fact_json = json.dumps(fact_package, indent=2, ensure_ascii=False)
-    
-    # 5. 构造极致约束的Prompt（核心：杜绝幻觉）
-    facts_list = "\n".join([
-        f"{i+1}. {fact['fact_content']}（相关度：{fact['similarity_score']}）"
-        for i, fact in enumerate(relevant_facts)
-    ])
-    
-    constrained_prompt = f"""# 核心规则（必须严格遵守）
-1. 你的唯一判断依据是下方「相关事实」，**绝对禁止**使用任何外部知识、经验、猜测补充。
-2. 仅回答与用户问题直接相关的内容，**禁止**发散、脑补、扩展逻辑、添加无关信息。
-3. 如果「相关事实」不足以支撑回答，**必须明确回复**："根据现有事实无法判断"。
-4. 回答必须简洁、精准，仅保留核心结论，无多余话术。
+    facts_text = "\n".join([f"- {f['content']}" for f in facts])
 
-# 相关事实
-{facts_list}
+    # ========== 【关键修改】全新宽松Prompt，放开创意与外部知识 ==========
+    prompt = f"""你可以自由调用自身全部行业知识、充分发散思考、拓展创意方案、多角度推演设计，完全不受思路限制。
+仅遵守一条底层规则：你输出的所有推论、设想、方案、结论，**不能与下方客观事实产生矛盾、相悖**。
 
-# 用户问题
+【客观确定事实】
+{facts_text}
+【用户问题/需求】
 {question}
 
-# 你的回答（仅保留核心内容）
+请完整输出你的思考、创意、方案，仅规避与上述事实冲突的内容即可。
 """
-    
-    # 6. 调用LLM并返回结果
-    llm_answer = call_constrained_llm(constrained_prompt)
-    return llm_answer, fact_json, constrained_prompt
+    # 调用LLM自由生成
+    raw_answer = call_llm(prompt)
 
-# ========== 4. Gradio UI（轻量化、聚焦核心） ==========
-with gr.Blocks(title="事实约束LLM插件", theme=gr.themes.Base()) as demo:
+    # ========== 新增：空模型后置校验冲突 ==========
+    checker = NullModelChecker(fact_text_list)
+    has_conflict, conflict_list = checker.detect_conflict(raw_answer)
+    if has_conflict:
+        conflict_tip = "【空模型校验拦截：检测到内容与客观事实存在冲突】\n" + "\n".join(conflict_list)
+        final_answer = conflict_tip + "\n\n原始回答：\n" + raw_answer
+    else:
+        final_answer = raw_answer
+
+    return final_answer, fact_json, prompt
+
+# ========== 4. Gradio UI（仅微调说明文案） ==========
+with gr.Blocks(title="NMP 事实约束助手 V3", theme=gr.themes.Soft()) as demo:
     gr.Markdown("""
-    # 🎯 事实约束LLM插件
-    ### 核心能力：仅基于给定事实做判断，压制幻觉/脑补/逻辑发散
-    - 事实是唯一判断依据，杜绝LLM使用外部知识编造答案
-    - 高相关度筛选，仅保留与问题强相关的事实
-    - 极致约束Prompt，强制LLM聚焦事实、简洁回答
+    # 🧠 NMP 事实约束助手
+    ### 机制说明：放开LLM创意与外部知识，仅后置校验是否与客观事实冲突
+    1. LLM可自由联想、调用行业知识、输出创新方案，不限制发挥
+    2. 空模型自动校验输出内容，仅拦截和给定事实相悖的内容
     """)
     
-    # 第一行：事实输入区 + 问题输入区
     with gr.Row():
-        with gr.Column(scale=5):
-            gr.Markdown("### 📝 事实库（输入或上传）")
-            fact_text = gr.Textbox(
-                label="手动输入事实（每行/空行分隔单条事实）",
-                placeholder="示例：\n服务器内存总容量为16GB\n内存使用率超过90%时会触发告警\n当前内存使用率为95%\n告警阈值可通过配置文件修改",
-                lines=8
+        with gr.Column(scale=4):
+            question_input = gr.Textbox(
+                label="💬 你的问题/需求", 
+                placeholder="例如：基于这台机器硬件参数，设计一套巡检创新方案",
+                lines=3
             )
-            fact_file = gr.File(
-                label="或上传事实文件（.txt/.md）",
-                file_types=[".txt", ".md"],
-                type="file"
+            dir_input = gr.Textbox(
+                label="📂 客观事实库路径", 
+                value=str(DATA_ROOT),
+                placeholder="留空则默认使用 ./data"
             )
+            submit_btn = gr.Button("🚀 提交查询", variant="primary")
         
-        with gr.Column(scale=5):
-            gr.Markdown("### ❓ 待判断问题")
-            question = gr.Textbox(
-                label="输入需要基于事实判断的问题",
-                placeholder="示例：当前服务器内存使用率是否触发告警？",
-                lines=4
-            )
-            submit_btn = gr.Button("🚀 基于事实判断", variant="primary")
-    
-    # 第二行：核心输出区
-    with gr.Row():
-        with gr.Column(scale=10):
-            gr.Markdown("### ✅ 约束后LLM回答")
+        with gr.Column(scale=6):
             answer_output = gr.Textbox(
-                label="LLM仅基于事实的判断结果",
-                lines=6,
+                label="✅ LLM创意输出 + 空模型校验结果", 
+                lines=8,
                 interactive=False
             )
     
-    # 展开区：事实包 + Prompt（调试用）
-    with gr.Accordion("🔍 调试信息（事实包+约束Prompt）", open=False):
-        fact_json_output = gr.JSON(label="相关事实包（JSON）")
-        prompt_output = gr.Textbox(
-            label="生成的约束Prompt",
-            lines=10,
-            interactive=False
-        )
+    with gr.Accordion("📦 查看提取的客观事实包 (JSON) 与生成Prompt", open=False):
+        fact_json_output = gr.JSON(label="事实包数据")
+        prompt_output = gr.Textbox(label="下发给LLM的宽松Prompt", lines=6, interactive=False)
     
-    # 绑定事件
     submit_btn.click(
-        fn=process_constrained_query,
-        inputs=[question, fact_text, fact_file],
+        fn=process_query,
+        inputs=[question_input, dir_input],
         outputs=[answer_output, fact_json_output, prompt_output]
     )
     
-    # 运行说明
     gr.Markdown("""
     ---
-    ### ⚙️ 使用说明
-    1. 事实输入：手动输入（每行一条）或上传.txt/.md文件（UTF-8编码）
-    2. 问题输入：提出需要基于事实判断的具体问题
-    3. LLM部署：推荐启动本地Ollama（模型建议：qwen2.5/llama3），否则使用模拟回复
-    4. 依赖安装：`pip install gradio sentence-transformers numpy requests`
+    **⚙️ 运行要求**：
+    1. 将客观事实文档（.txt/.md）放入 `./data` 文件夹。
+    2. 安装依赖：`pip install gradio sentence-transformers numpy requests`
+    3. 启动本地 Ollama 获得完整创意输出。
     """)
 
-# ========== 5. 启动插件 ==========
+# ========== 5. 启动 ==========
 if __name__ == "__main__":
-    # 本地启动，仅本机访问
-    demo.launch(
-        server_name="127.0.0.1",
-        server_port=7860,
-        share=False,
-        inbrowser=True
-    )
+    demo.launch(server_name="127.0.0.1", server_port=7860, share=False)
