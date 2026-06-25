@@ -247,14 +247,12 @@ G3/G4的推演显示：
 
 附件：
  
- -  [元宝实验](examples/yuanbao.md)
+ -  [元宝实验](/examples/yuanbao.md)
  
- -  [豆包实验](examples/doubao.md)
+ -  [豆包实验](/examples/doubao.md)
 
 
- - [元宝实验](examples/yuanbao.md)
- 
- - [豆包实验](examples/doubao.md)
+
 ---
 
 
