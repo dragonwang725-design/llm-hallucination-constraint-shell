@@ -157,6 +157,7 @@ Meta-Fact Blindness	The LLM has no knowledge of the Meta-Fact Vault's existence 
 Analogy: The LLM is a student in a closed-book exam. The exam paper (filtered facts + purpose) provides all necessary conditions. The student may reason freely, but answers must conform to the given conditions. The student cannot request additional materials.
 
 3.4 Dialectical Conflict-Resolution Layer
+
 <img src="/flow-chart/TDA.png" alt="图片替代文字" width="60%">
 
 
@@ -203,7 +204,7 @@ Step 5 (Synthesis): L2 sanitizes labels (path-traversal characters stripped, res
 
 Step 6 (Judgment & Execution): L2 executes Copy(src, dst), verifies checksum identity (MD5_src = MD5_dst), logs causally, and proceeds. If LLM times out (Bad Gateway), L2 does not crash. It degrades gracefully: labels default to file extensions, copies continue, and the anomaly is logged for human review.
 
-<img src="/flow-chart/2026.png" alt="图片替代文字" width="90%">
+<img src="/flow-chart/2026.jpg" alt="图片替代文字" width="90%">
 
 
 Figure 3: Old Paradigm vs. New Paradigm. Left: Pure LLM diagnosis fails after five guesses. Right: NMP three-layer architecture succeeds through fact-driven closed-loop execution.
