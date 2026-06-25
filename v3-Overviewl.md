@@ -13,9 +13,14 @@ This is not a framework. It is an architectural specification for **Purpose–Ju
 
 **Authors:** loweswang  
 **Date:** June 10, 2026
-**Zenodo V2 DOI:** [10.5281/zenodo.20636262](https://doi.org/10.5281/zenodo.20636262)
-**Concept DOI (always latest):** [10.5281/zenodo.20643414](https://doi.org/10.5281/zenodo.20643414)
-**Previous Version:** [10.5281/zenodo.20463703](https://doi.org/10.5281/zenodo.20463703)
+
+**Zenodo DOI:**
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20636262.svg)](https://doi.org/10.5281/zenodo.20636262)
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20643414.svg)](https://doi.org/10.5281/zenodo.20643414)
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20463703.svg)](https://doi.org/10.5281/zenodo.20463703)
 
 ## Abstract
 
@@ -111,8 +116,7 @@ Output: Physical-world execution result.
 3 Architecture: The Three-Layer Dual-Perspective (TDA)
 NMP mandates an architectural firewall between cognition and execution, augmented by a dialectical conflict-resolution layer.
 
-<img width="1747" height="865" alt="arch" src="https://github.com/user-attachments/assets/6b90f4e6-b3cd-418e-8371-0e323606fc15" />
-
+<img src="/flow-chart/arch.png" alt="图片替代文字" width="83%">
 
 Figure 1: TDA Core Architecture. The local side (right) contains the Null Model, Meta-Fact Vault, and Case Library. The cloud side (left) contains the LLM and its Case Library. The Null Model sends desanitized instructions (filtered facts + purpose) to the LLM; the LLM returns strategy proposals. The Null Model performs matching, computation, and adjudication. Data flow: User Input → L2 → Probes → L2 → L3 → L2 → Output (closed loop).
 
@@ -153,7 +157,7 @@ Meta-Fact Blindness	The LLM has no knowledge of the Meta-Fact Vault's existence 
 Analogy: The LLM is a student in a closed-book exam. The exam paper (filtered facts + purpose) provides all necessary conditions. The student may reason freely, but answers must conform to the given conditions. The student cannot request additional materials.
 
 3.4 Dialectical Conflict-Resolution Layer
-<img width="2307" height="3089" alt="三层双视角（TDA）辩证架构流程图" src="https://github.com/user-attachments/assets/9f29df38-bace-4641-a9d3-677d70ec2c24" />
+<img src="/flow-chart/TDA.png" alt="图片替代文字" width="60%">
 
 
 Figure 2: TDA Dialectical Architecture. The input layer feeds into two parallel processing paths: the LLM (driven by its case library) and the Null Model (driven by the Meta-Fact Vault and its case library). Their outputs enter a structured debate layer (conflict graph construction). The meta-passive layer contains an adjudication AI with dynamic thresholds and justified randomness, informed by historical distributions and periodic audits. A non-cognitive structural circuit breaker (with human audit/external anchor override) provides final pass/reject/interrupt decisions. Feedback loops update the case libraries.
@@ -199,7 +203,7 @@ Step 5 (Synthesis): L2 sanitizes labels (path-traversal characters stripped, res
 
 Step 6 (Judgment & Execution): L2 executes Copy(src, dst), verifies checksum identity (MD5_src = MD5_dst), logs causally, and proceeds. If LLM times out (Bad Gateway), L2 does not crash. It degrades gracefully: labels default to file extensions, copies continue, and the anomaly is logged for human review.
 
-<img width="692" height="704" alt="2026" src="https://github.com/user-attachments/assets/c2a470db-a2ca-4bd6-b021-b5c3f05970a1" />
+<img src="/flow-chart/2026.png" alt="图片替代文字" width="90%">
 
 
 Figure 3: Old Paradigm vs. New Paradigm. Left: Pure LLM diagnosis fails after five guesses. Right: NMP three-layer architecture succeeds through fact-driven closed-loop execution.
