@@ -116,7 +116,7 @@ Output: Physical-world execution result.
 3 Architecture: The Three-Layer Dual-Perspective (TDA)
 NMP mandates an architectural firewall between cognition and execution, augmented by a dialectical conflict-resolution layer.
 
-<img src="/flow-chart/arch.png" alt="图片替代文字" width="83%">
+<img src="/flow-chart/arch.png" alt="图片替代文字" width="90%">
 
 Figure 1: TDA Core Architecture. The local side (right) contains the Null Model, Meta-Fact Vault, and Case Library. The cloud side (left) contains the LLM and its Case Library. The Null Model sends desanitized instructions (filtered facts + purpose) to the LLM; the LLM returns strategy proposals. The Null Model performs matching, computation, and adjudication. Data flow: User Input → L2 → Probes → L2 → L3 → L2 → Output (closed loop).
 
@@ -204,7 +204,7 @@ Step 5 (Synthesis): L2 sanitizes labels (path-traversal characters stripped, res
 
 Step 6 (Judgment & Execution): L2 executes Copy(src, dst), verifies checksum identity (MD5_src = MD5_dst), logs causally, and proceeds. If LLM times out (Bad Gateway), L2 does not crash. It degrades gracefully: labels default to file extensions, copies continue, and the anomaly is logged for human review.
 
-<img src="/flow-chart/2026.jpg" alt="图片替代文字" width="90%">
+<img src="/flow-chart/2026.jpg" alt="图片替代文字" width="60%">
 
 
 Figure 3: Old Paradigm vs. New Paradigm. Left: Pure LLM diagnosis fails after five guesses. Right: NMP three-layer architecture succeeds through fact-driven closed-loop execution.
@@ -296,4 +296,4 @@ The "adjudication AI" in the dialectical conflict-resolution layer (Figure 2, me
 [6] Russell, S. (2019). Human Compatible: Artificial Intelligence and the Problem of Control. Viking.
 
 [7] Wang, L. (2026). The Null Model Paradigm: Constraint-First Architecture for Reliable LLM Agents (Version 1.0). 
-Zenodo  https://doi.org/10.5281/zenodo.20463703
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20463703.svg)](https://doi.org/10.5281/zenodo.20463703)
