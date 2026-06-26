@@ -12,12 +12,12 @@ authors:
     given-names: "Lowes"
     alias: "loweswang"
     email: "250734099@qq.com"
-repository-code: "https://github.com/loweswang/llm-hallucination-Guardian-Shell"
+repository-code: "https://github.com/dragonwang725-design/null model paradigm""
 license: Apache-2.0
 version: 1.0.0
 date-released: 2026-06-24
-# 注意：第一次 ZENODO Release 后，把下面这行取消注释并填入真实 DOI
-# doi: 10.5281/zenodo.xxxxxxx
+# 注意：
+# doi: 10.5281/zenodo.20715010
 keywords:
   - "large language model"
   - "hallucination"
