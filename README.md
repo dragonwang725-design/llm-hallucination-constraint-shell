@@ -6,6 +6,13 @@ A small plugin that effectively mitigates and eliminates the hallucinations and 
 # 一个有效约束、压制 AI大模型（LLM ）幻觉、逻辑脑补发散的小插件
  ——  真正解决大模型幻觉与逻辑脑补：不是改考试规则，是给模型戴上**幻觉紧箍咒**  
 
+#
+
+**引用**：[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20964747.svg)](https://doi.org/10.5281/zenodo.20964747)
+
+---
+
+
 全世界都知道，大模型存在幻觉、逻辑脑补和发散的问题。  
 但全世界也都没有找到这个根本性问题的真正根源。
 
