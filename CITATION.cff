@@ -18,7 +18,7 @@ version: 1.0.0
 date-released: 2026-06-24
 # 注意：
 # doi: 10.5281/zenodo.20715011
-# doi: 10.5281/zenodo.20964747
+# doi: 10.5281/zenodo.20964746
 keywords:
   - "large language model"
   - "hallucination"
