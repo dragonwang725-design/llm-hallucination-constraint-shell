@@ -8,7 +8,7 @@ A small plugin that effectively mitigates and eliminates the hallucinations and 
 
 #
 
-**引用**：[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20964747.svg)](https://doi.org/10.5281/zenodo.20964747)
+**引用**：[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20964746.svg)](https://doi.org/10.5281/zenodo.20964746)
 
 ---
 
